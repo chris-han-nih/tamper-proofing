@@ -9,46 +9,37 @@ import javax.crypto.spec.SecretKeySpec
 import kotlin.text.Charsets.UTF_8
 
 object TamperProofing {
-  private val key = byteArrayOf(1, 2, 3, 4, 5, 6, 7, 8)
+  private val defaultKey = "christmas".toByteArray(UTF_8)
+  private const val ALGORITHM = "HmacSHA512"
+
   enum class HmacResult { Ok, Expired, Invalid }
 
-  fun hmac(expire: Long, key: String): String {
-    val algorithm = "HmacSHA512"
-    val secretKey = if (key.isBlank()) TamperProofing.key else key.toByteArray(UTF_8)
-    val mac = Mac.getInstance(algorithm).apply {
-      init(SecretKeySpec(secretKey, algorithm))
-    }
-
-    val msg = "$expire$this"
-    val hashBytes = mac.doFinal(msg.toByteArray(UTF_8))
-    val result = ByteArray(8 + hashBytes.size)
-
-    hashBytes.copyInto(result, 8)
-    expire.toByteArray().copyInto(result, 0)
-    return swapInputString(Base64.getEncoder().encodeToString(result))
+  fun hmac(expire: Long, origin: String, key: String = ""): String {
+    val secretKey = key.takeIf { it.isNotBlank() }?.toByteArray(UTF_8) ?: defaultKey
+    val hashBytes = createHmac(secretKey, "$expire$origin")
+    val result = ByteBuffer.allocate(Long.SIZE_BYTES + hashBytes.size).putLong(expire).put(hashBytes).array()
+    return Base64.getEncoder().encodeToString(result).swap("+=/", "-_,")
   }
 
-  fun verify(input: String, expiringHmac: String): HmacResult {
-    val bytes = Base64.getDecoder().decode(swapOutputString(expiringHmac))
-    val claimedExpiry = bytes.copyOfRange(0, 8).toLong()
-    val currentTimestamp = System.currentTimeMillis()
-    if (claimedExpiry < currentTimestamp) {
-      return HmacResult.Expired
-    }
-    return if (expiringHmac != hmac(claimedExpiry, input)) HmacResult.Invalid else HmacResult.Ok
+  fun verify(expiringHmac: String, origin: String, key: String = ""): HmacResult {
+    val bytes = Base64.getDecoder().decode(expiringHmac.swap("-_,", "+=/"))
+    val byteBuffer = ByteBuffer.wrap(bytes)
+    val claimedExpiry = byteBuffer.long
+
+    val currentMillis = LocalDateTime.now().toEpochSecond(ZoneOffset.UTC)
+    if (claimedExpiry < currentMillis) return HmacResult.Expired
+    if (expiringHmac != hmac(claimedExpiry, origin, key)) return HmacResult.Invalid
+    return HmacResult.Ok
   }
 
-  private fun swapInputString(org: String) = swap(org, "+=/", "-_,")
-  private fun swapOutputString(org: String) = swap(org, "-_,", "+=/")
+  private fun createHmac(key: ByteArray, data: String): ByteArray =
+    Mac.getInstance(ALGORITHM).apply {
+      init(SecretKeySpec(key, algorithm))
+    }.doFinal(data.toByteArray(UTF_8))
+
+  private fun String.swap(from: String, to: String): String =
+    map { char ->
+      val index = from.indexOf(char)
+      if (index >= 0) to[index] else char
+    }.joinToString("")
 }
-
-fun swap(org: String, from: String, to: String): String {
-  var result = org
-  for (i in from.indices) {
-    result = result.replace(from[i], to[i])
-  }
-  return result
-}
-
-fun Long.toByteArray(): ByteArray = ByteBuffer.allocate(Long.SIZE_BYTES).putLong(this).array()
-fun ByteArray.toLong(): Long = ByteBuffer.wrap(this).long
