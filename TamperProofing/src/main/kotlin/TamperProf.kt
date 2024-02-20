@@ -1,6 +1,8 @@
 package org.example
 
 import java.nio.ByteBuffer
+import java.time.LocalDateTime
+import java.time.ZoneOffset
 import java.util.*
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
@@ -10,7 +12,7 @@ object TamperProofing {
   private val key = byteArrayOf(1, 2, 3, 4, 5, 6, 7, 8)
   enum class HmacResult { Ok, Expired, Invalid }
 
-  fun Hmac(expire: Long, key: String): String {
+  fun hmac(expire: Long, key: String): String {
     val algorithm = "HmacSHA512"
     val secretKey = if (key.isBlank()) TamperProofing.key else key.toByteArray(UTF_8)
     val mac = Mac.getInstance(algorithm).apply {
@@ -29,10 +31,11 @@ object TamperProofing {
   fun verify(input: String, expiringHmac: String): HmacResult {
     val bytes = Base64.getDecoder().decode(swapOutputString(expiringHmac))
     val claimedExpiry = bytes.copyOfRange(0, 8).toLong()
-    if (claimedExpiry < System.currentTimeMillis()) {
+    val currentTimestamp = System.currentTimeMillis()
+    if (claimedExpiry < currentTimestamp) {
       return HmacResult.Expired
     }
-    return if (expiringHmac != Hmac(claimedExpiry, input)) HmacResult.Invalid else HmacResult.Ok
+    return if (expiringHmac != hmac(claimedExpiry, input)) HmacResult.Invalid else HmacResult.Ok
   }
 
   private fun swapInputString(org: String) = swap(org, "+=/", "-_,")

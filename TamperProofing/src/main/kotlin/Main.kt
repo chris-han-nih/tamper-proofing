@@ -1,10 +1,13 @@
 package org.example
 
+import java.time.LocalDateTime
+import java.time.ZoneOffset
+
 fun main() {
-  val code = TamperProofing.Hmac(17080750119000, "davehan")
+  val expireDate = LocalDateTime.now()
+    .plusMinutes(5)
+  val expire = expireDate.toEpochSecond(ZoneOffset.UTC)
+  val code = TamperProofing.hmac(expire, "davehan")
   println(code)
-  println(System.currentTimeMillis())
   println(TamperProofing.verify("davehan", code))
 }
-//1708082561051
-//17080750119000
